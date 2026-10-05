@@ -1,0 +1,244 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "20"
+  UV_VERSION: "0.5"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Backend
+  # ---------------------------------------------------------------------------
+  backend-lint:
+    name: "Backend: Lint & Format"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install dependencies
+        working-directory: apps/api
+        run: uv sync --frozen
+      - name: Ruff check
+        working-directory: apps/api
+        run: uv run ruff check src/ tests/
+      - name: Ruff format check
+        working-directory: apps/api
+        run: uv run ruff format --check src/ tests/
+
+  backend-typecheck:
+    name: "Backend: Type Check"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install dependencies
+        working-directory: apps/api
+        run: uv sync --frozen
+      - name: Mypy
+        working-directory: apps/api
+        run: uv run mypy src/
+
+  backend-test-unit:
+    name: "Backend: Unit Tests"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install dependencies
+        working-directory: apps/api
+        run: uv sync --frozen
+      - name: Run unit tests
+        working-directory: apps/api
+        run: uv run pytest tests/unit/ -v --tb=short --junitxml=junit-unit.xml
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-unit-results
+          path: apps/api/junit-unit.xml
+
+  backend-test-integration:
+    name: "Backend: Integration Tests"
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: mailagent_test
+          POSTGRES_USER: mailagent
+          POSTGRES_PASSWORD: mailagent
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mailagent -d mailagent_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql+asyncpg://mailagent:mailagent@localhost:5432/mailagent_test
+      REDIS_URL: redis://localhost:6379/0
+      APP_ENV: test
+      APP_SECRET_KEY: test-secret-key-minimum-32-chars-long-for-ci
+      TOKEN_ENCRYPTION_KEYS: dGVzdC1rZXktZm9yLWNpLXRoaXMtaXMtbm90LXJlYWw=
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install dependencies
+        working-directory: apps/api
+        run: uv sync --frozen
+      - name: Run integration tests
+        working-directory: apps/api
+        run: uv run pytest tests/integration/ -v --tb=short --junitxml=junit-integ.xml
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-integ-results
+          path: apps/api/junit-integ.xml
+
+  backend-audit:
+    name: "Backend: Dependency Audit"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install dependencies
+        working-directory: apps/api
+        run: uv sync --frozen
+      - name: Pip audit
+        working-directory: apps/api
+        run: uv run pip-audit
+        continue-on-error: true
+
+  # ---------------------------------------------------------------------------
+  # Frontend
+  # ---------------------------------------------------------------------------
+  frontend-lint:
+    name: "Frontend: Lint & Format"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install dependencies
+        working-directory: apps/web
+        run: npm ci
+      - name: ESLint
+        working-directory: apps/web
+        run: npm run lint
+      - name: Prettier
+        working-directory: apps/web
+        run: npx prettier --check "src/**/*.{ts,tsx,css}"
+
+  frontend-typecheck:
+    name: "Frontend: Type Check"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install dependencies
+        working-directory: apps/web
+        run: npm ci
+      - name: TypeScript
+        working-directory: apps/web
+        run: npx tsc --noEmit
+
+  frontend-build:
+    name: "Frontend: Build"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install dependencies
+        working-directory: apps/web
+        run: npm ci
+      - name: Build
+        working-directory: apps/web
+        run: npm run build
+
+  frontend-audit:
+    name: "Frontend: Dependency Audit"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install dependencies
+        working-directory: apps/web
+        run: npm ci
+      - name: NPM audit
+        working-directory: apps/web
+        run: npm audit --omit=dev
+        continue-on-error: true
+
+  # ---------------------------------------------------------------------------
+  # Docker
+  # ---------------------------------------------------------------------------
+  docker-build:
+    name: "Docker: Build Images"
+    runs-on: ubuntu-latest
+    needs: [backend-lint, backend-typecheck, backend-test-unit, frontend-build]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build API image
+        run: docker build -t mailagent-api:ci ./apps/api
+      - name: Build Web image
+        run: docker build -t mailagent-web:ci ./apps/web

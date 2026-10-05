@@ -1,0 +1,2 @@
+// Feature: Templates CRUD
+export {};
