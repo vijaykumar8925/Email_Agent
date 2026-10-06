@@ -146,6 +146,25 @@ def create_app() -> FastAPI:
     app.add_api_route("/api/v1/healthz", _healthz, methods=["GET"], tags=["health"])
     app.add_api_route("/api/v1/readyz", _readyz, methods=["GET"], tags=["health"])
 
+    # Root redirect to frontend
+    from fastapi.responses import RedirectResponse
+
+    @app.get("/", include_in_schema=False)
+    async def _root() -> RedirectResponse:
+        target = settings.app_cors_origins[0] if settings.app_cors_origins else "http://localhost:3000"
+        return RedirectResponse(url=target)
+
+    # Feature Routers
+    from mailagent.ai.router import router as ai_router
+    from mailagent.auth.router import router as auth_router
+    from mailagent.drafts.router import router as draft_router
+    from mailagent.emails.router import router as email_router
+
+    app.include_router(auth_router)
+    app.include_router(ai_router)
+    app.include_router(email_router)
+    app.include_router(draft_router)
+
     return app
 
 

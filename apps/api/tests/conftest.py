@@ -30,6 +30,8 @@ def _set_test_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "GOOGLE_CLIENT_ID": "test-client-id",
         "GOOGLE_CLIENT_SECRET": "test-client-secret",
         "TOKEN_ENCRYPTION_KEYS": "",
+        "AI_PROVIDER": "ollama",
+        "OLLAMA_BASE_URL": "http://localhost:11434",
         "ANTHROPIC_API_KEY": "sk-ant-test-key",
     }
     for key, value in env_vars.items():
@@ -49,6 +51,18 @@ async def app() -> AsyncGenerator[Any, None]:
     test_app = create_app()
 
     # Override lifespan-managed dependencies for unit tests
+    from unittest.mock import AsyncMock, MagicMock
+
+    from mailagent.db.session import get_db_session
+
+    async def _mock_db_session() -> AsyncGenerator[Any, None]:
+        mock_session = AsyncMock()
+        mock_res = MagicMock()
+        mock_res.scalar_one_or_none.return_value = None
+        mock_session.execute.return_value = mock_res
+        yield mock_session
+
+    test_app.dependency_overrides[get_db_session] = _mock_db_session
     yield test_app
 
 

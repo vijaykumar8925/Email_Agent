@@ -7,7 +7,9 @@ with a clear error message.
 
 from __future__ import annotations
 
+import os
 from enum import StrEnum
+from pathlib import Path
 from typing import Any, Self
 
 from pydantic import Field, PostgresDsn, RedisDsn, field_validator, model_validator
@@ -54,8 +56,13 @@ class Settings(BaseSettings):
     credentials) have no defaults and will raise immediately if missing.
     """
 
+    # Resolve .env from apps/api and repo root (except in test mode)
+    _api_env = Path(__file__).resolve().parents[3] / ".env"
+    _root_env = Path(__file__).resolve().parents[5] / ".env"
+    _env_candidates = [p for p in (_root_env, _api_env) if p.is_file()]
+    _env_tuple = tuple(str(p) for p in _env_candidates) if os.getenv("APP_ENV") != "test" else ()
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_env_tuple if _env_tuple else None,
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -70,12 +77,13 @@ class Settings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
+        env_file = settings_cls.model_config.get("env_file")
+        if os.getenv("APP_ENV") == "test":
+            env_file = None
         return (
             init_settings,
             _CustomEnvSettingsSource(settings_cls),
-            _CustomDotEnvSettingsSource(
-                settings_cls, env_file=settings_cls.model_config.get("env_file")
-            ),
+            _CustomDotEnvSettingsSource(settings_cls, env_file=env_file),
             file_secret_settings,
         )
 
@@ -107,7 +115,17 @@ class Settings(BaseSettings):
     # --- Token Encryption ---
     token_encryption_keys: list[str] = Field(default_factory=list)
 
-    # --- Anthropic ---
+    # --- AI Settings ---
+    ai_provider: str = "ollama"
+
+    # --- Ollama (Local Private LLM) ---
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model_classifier: str = "phi4-mini:latest"
+    ollama_model_drafter: str = "phi4-mini:latest"
+    ollama_timeout_seconds: int = Field(default=120, ge=1)
+    ollama_temperature: float = Field(default=0.2, ge=0.0, le=2.0)
+
+    # --- Anthropic (Cloud Optional) ---
     anthropic_api_key: str = ""
     anthropic_model_classifier: str = "claude-sonnet-4-20250514"
     anthropic_model_drafter: str = "claude-sonnet-4-20250514"

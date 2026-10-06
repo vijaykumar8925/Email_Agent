@@ -91,3 +91,11 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
 
     async with _session_factory() as session:
         yield session
+
+
+def get_session_factory() -> async_sessionmaker[AsyncSession]:
+    """Return the database session factory for background tasks."""
+    if _session_factory is None:
+        raise RuntimeError("Database session factory not initialized. Call init_db() first.")
+    return _session_factory
+

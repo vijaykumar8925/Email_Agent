@@ -13,10 +13,18 @@ from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from mailagent.core.config import get_settings
 from mailagent.db.base import Base
+import mailagent.audit.models  # noqa: F401
+import mailagent.drafts.models  # noqa: F401
+import mailagent.emails.models  # noqa: F401
+import mailagent.users.models  # noqa: F401
 
 # Alembic Config object
 config = context.config
+
+# Overwrite sqlalchemy.url with the app's settings
+config.set_main_option("sqlalchemy.url", get_settings().database_url_str)
 
 # Set up logging from alembic.ini
 if config.config_file_name is not None:

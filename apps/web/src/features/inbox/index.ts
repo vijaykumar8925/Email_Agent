@@ -1,2 +1,2 @@
-// Feature: Inbox listing and email viewing
-export {};
+export { default as InboxView } from "./InboxView";
+export * from "./types";
